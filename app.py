@@ -8,7 +8,7 @@ st.title("🕵️‍♂️ Hệ Thống Kiểm Chứng Tin Giả")
 st.write("Dự án vòng 3 - Nhập nội dung nghi ngờ để AI tra cứu đối chiếu ngay!")
 
 # 2. KHỞI TẠO AI
-API_KEY = "AIzaSyA0qoMnT-0kGhmE9vup5aht2R1RYRwmabo"
+API_KEY = st.secrets["GEMINI_API_KEY"]
 client = genai.Client(api_key=API_KEY)
 
 # 3. Ô NHẬP LIỆU CHO NGƯỜI DÙNG
