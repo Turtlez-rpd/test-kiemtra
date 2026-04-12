@@ -4,100 +4,104 @@ from google.genai import types
 import PIL.Image
 import io
 
-# --- CẤU HÌNH TRANG ---
+# --- CẤU HÌNH GIAO DIỆN ---
 st.set_page_config(
-    page_title="TruthGuard AI - National Final",
+    page_title="TruthGuard AI - Fact Checker",
     page_icon="🛡️",
     layout="wide"
 )
 
-# --- TÙY CHỈNH CSS ĐỂ GIAO DIỆN ĐẸP HƠN ---
+# Custom CSS cho giao diện chuyên nghiệp
 st.markdown("""
     <style>
-    .main { background-color: #f5f7f9; }
-    .stButton>button { width: 100%; border-radius: 20px; height: 3em; background-color: #007bff; color: white; }
-    .report-card { padding: 20px; border-radius: 15px; background-color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    .stApp { background-color: #f8f9fa; }
+    .main-title { color: #1e3a8a; font-size: 3rem; font-weight: bold; text-align: center; margin-bottom: 1rem; }
+    .stButton>button { border-radius: 10px; background-color: #1e40af; color: white; font-weight: bold; }
+    .metric-container { background-color: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
     </style>
     """, unsafe_allow_html=True)
 
 # --- KHỞI TẠO AI ---
-# Đảm bảo bạn đã thêm GEMINI_API_KEY vào .streamlit/secrets.toml
+# Sử dụng API Key từ Secrets của Streamlit
 try:
     API_KEY = st.secrets["GEMINI_API_KEY"]
     client = genai.Client(api_key=API_KEY)
-except:
-    st.error("Thiếu API Key! Vui lòng kiểm tra lại Secrets.")
+except Exception:
+    st.error("⚠️ Không tìm thấy API Key. Hãy cấu hình trong Secrets hoặc file .env")
 
-# --- SIDEBAR: HƯỚNG DẪN & THÔNG TIN ---
+# --- SIDEBAR ---
 with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/7542/7542190.png", width=100)
-    st.title("TruthGuard AI")
-    st.info("Hệ thống đa tác nhân cảnh báo tin giả dựa trên AI và dữ liệu thời gian thực.")
+    st.title("🛠️ Điều khiển")
+    st.info("Hệ thống kiểm chứng tin tức đa phương tiện của đội 3TLcoder.")
     st.divider()
-    st.write("📌 **Hướng dẫn:**")
-    st.caption("1. Nhập văn bản hoặc dán Link bài báo.")
-    st.caption("2. Tải lên ảnh (chụp tin nhắn, bài đăng) hoặc video nghi vấn.")
-    st.caption("3. Chờ AI đối chiếu với Google Search.")
+    st.markdown("### 📊 Quota Status")
+    st.caption("Model: Gemini 2.5 Flash (Active)")
+    st.progress(0.4) # Demo thanh tiến trình
 
 # --- GIAO DIỆN CHÍNH ---
-st.title("🛡️ Kiểm Chứng Tin Tức Đa Phương Tiện")
-st.write("Hệ thống tự động phân tích độ tin cậy dựa trên hình ảnh, video và văn bản.")
+st.markdown("<h1 class='main-title'>🛡️ TruthGuard AI</h1>", unsafe_allow_html=True)
+st.write("<p style='text-align: center;'>Công nghệ AI xác minh tin giả qua Văn bản, Hình ảnh và Video</p>", unsafe_allow_html=True)
 
-# Chia cột cho phần nhập liệu
-col1, col2 = st.columns([1, 1])
+# Chia bố cục Input
+col_text, col_media = st.columns([1.2, 1])
 
-with col1:
-    st.subheader("📝 Nội dung & Liên kết")
-    tin_tuc_nghi_ngo = st.text_area("Nhập nội dung hoặc dán link cần kiểm tra:", height=150, placeholder="Ví dụ: Link bài báo hoặc nội dung tin đồn trên Facebook...")
-    
-with col2:
-    st.subheader("🖼️ Hình ảnh / Video")
-    uploaded_file = st.file_uploader("Tải lên bằng chứng (Ảnh/Video):", type=["jpg", "jpeg", "png", "mp4", "mov"])
+with col_text:
+    st.markdown("### 📝 Nội dung xác minh")
+    tin_tuc_nghi_ngo = st.text_area(
+        "Dán văn bản bài báo, đoạn tin đồn hoặc Link tại đây:", 
+        height=200, 
+        placeholder="Ví dụ: Link báo giả mạo, tin nhắn lừa đảo chuyển tiền..."
+    )
+
+with col_media:
+    st.markdown("### 📸 Bằng chứng Media")
+    uploaded_file = st.file_uploader("Tải lên Ảnh chụp màn hình hoặc Video:", type=["jpg", "jpeg", "png", "mp4", "mov"])
     if uploaded_file:
         if uploaded_file.type.startswith('image'):
-            st.image(uploaded_file, caption="Ảnh đã tải lên", use_container_width=True)
+            st.image(uploaded_file, caption="Ảnh bằng chứng", use_container_width=True)
         else:
             st.video(uploaded_file)
 
-# --- NÚT XỬ LÝ ---
-if st.button("🔍 BẮT ĐẦU PHÂN TÍCH CHUYÊN SÂU"):
+# --- XỬ LÝ DỮ LIỆU ---
+if st.button("🚀 BẮT ĐẦU KIỂM CHỨNG"):
     if not tin_tuc_nghi_ngo and not uploaded_file:
-        st.warning("Vui lòng nhập thông tin hoặc tải file lên!")
+        st.warning("Vui lòng nhập ít nhất một loại dữ liệu (Văn bản hoặc File)!")
     else:
-        with st.spinner("🚀 TruthGuard đang quét dữ liệu toàn cầu..."):
-            # Chuẩn bị nội dung gửi đi (Multimodal)
+        with st.spinner("🔍 Hệ thống đang đối soát dữ liệu thực tế..."):
+            
+            # Chuẩn bị dữ liệu cho AI
             contents = []
             
-            # 1. Thêm text
-            prompt_text = f"""
-            Bạn là chuyên gia kiểm chứng sự thật cấp cao. Hãy sử dụng công cụ Tìm kiếm để xác minh:
-            Nội dung/Link: {tin_tuc_nghi_ngo}
+            # Prompt tối ưu để AI trả về % và lời khuyên
+            prompt_instruction = """
+            Bạn là chuyên gia phân tích tin giả của TruthGuard. Hãy sử dụng Google Search để kiểm tra.
+            Hãy phân tích kỹ các yếu tố: nguồn tin, tính xác thực của hình ảnh/video, và sự kiện liên quan.
             
-            YÊU CẦU TRẢ VỀ:
-            1. PHẦN TRĂM ĐỘ CHÍNH XÁC: (Số từ 0-100 kèm dấu %)
-            2. PHÂN TÍCH CHI TIẾT: (Đối chiếu với các báo lớn, nguồn chính thống)
-            3. ĐIỂM NGHI VẤN: (Nếu là tin giả, hãy chỉ ra các dấu hiệu lừa đảo/sai lệch)
-            4. LỜI KHUYÊN: (Hành động cụ thể cho người dùng)
+            Yêu cầu cấu trúc phản hồi:
+            1. [PERCENTAGE]: Đưa ra con số % tin cậy cụ thể (Ví dụ: 20% Thật - 80% Giả).
+            2. [ANALYSIS]: Phân tích các bằng chứng tìm được từ các nguồn báo chí chính thống.
+            3. [WARNINGS]: Chỉ ra các dấu hiệu lừa đảo hoặc cắt ghép (nếu có).
+            4. [ADVICE]: Lời khuyên cụ thể cho người dùng (Ví dụ: Không nhấn link, báo cáo bài viết).
             
-            Trình bày bằng Markdown đẹp mắt.
+            Trình bày bằng Markdown, sử dụng bảng hoặc bullet points cho dễ đọc.
             """
-            contents.append(prompt_text)
+            contents.append(prompt_instruction)
             
-            # 2. Thêm file nếu có
+            if tin_tuc_nghi_ngo:
+                contents.append(f"Nội dung cần kiểm tra: {tin_tuc_nghi_ngo}")
+            
             if uploaded_file:
                 if uploaded_file.type.startswith('image'):
                     img = PIL.Image.open(uploaded_file)
                     contents.append(img)
                 else:
-                    # Với video, Gemini cần được upload qua File API nếu file lớn, 
-                    # ở đây ta xử lý đơn giản bằng bytes cho file nhỏ.
                     video_data = uploaded_file.read()
                     contents.append(types.Part.from_bytes(data=video_data, mime_type=uploaded_file.type))
 
             try:
-                # Gọi Model (Dùng Gemini 2.0 Flash để có tốc độ và khả năng search tốt nhất)
+                # Đổi model sang Gemini 2.5 Flash như yêu cầu
                 response = client.models.generate_content(
-                    model='gemini-2.0-flash',
+                    model='gemini-2.5-flash',
                     contents=contents,
                     config=types.GenerateContentConfig(
                         tools=[{"google_search": {}}]
@@ -108,19 +112,14 @@ if st.button("🔍 BẮT ĐẦU PHÂN TÍCH CHUYÊN SÂU"):
                 st.divider()
                 st.balloons()
                 
-                # Trích xuất phần trăm (giả định AI trả về đúng định dạng)
-                # Lưu ý: Trong thực tế bạn có thể dùng Regex để lấy số % ra vẽ biểu đồ
+                st.markdown("## 📋 Báo Cáo Kiểm Chứng")
                 
-                st.subheader("📊 Kết quả phân tích")
-                
-                # Hiển thị nội dung từ AI
+                # Hiển thị nội dung phản hồi từ AI
                 st.markdown(response.text)
-                
-                st.success("Hệ thống đã hoàn tất đối chiếu dữ liệu.")
 
             except Exception as e:
-                st.error(f"Lỗi kỹ thuật: {e}")
+                st.error(f"❌ Lỗi: {str(e)}")
 
 # --- FOOTER ---
 st.divider()
-st.caption("© 2026 TruthGuard AI - Dự án dự thi AI Young Guru - Đội ngũ: 3TLcoder")
+st.markdown("<p style='text-align: center; color: gray;'>Dự án TruthGuard AI - National Final top 30 Hanoi</p>", unsafe_allow_html=True)
