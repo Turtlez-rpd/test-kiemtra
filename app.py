@@ -11,15 +11,54 @@ st.set_page_config(
     layout="wide"
 )
 
-# Custom CSS cho giao diện chuyên nghiệp
+# --- CSS FIX LỖI HIỂN THỊ (ÉP MÀU CHỮ ĐẬM) ---
 st.markdown("""
     <style>
-    .stApp { background-color: #f8f9fa; }
-    .main-title { color: #1e3a8a; font-size: 3rem; font-weight: bold; text-align: center; margin-bottom: 1rem; }
-    .stButton>button { border-radius: 10px; background-color: #1e40af; color: white; font-weight: bold; }
-    .metric-container { background-color: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+    /* Nền chính của App */
+    .stApp {
+        background-color: #ffffff;
+    }
+    
+    /* Ép màu tất cả các loại chữ tiêu đề và văn bản */
+    h1, h2, h3, p, span, label {
+        color: #1e293b !important; /* Màu xanh đen đậm, cực kỳ dễ đọc */
+    }
+
+    /* Tùy chỉnh tiêu đề chính */
+    .main-title {
+        color: #1e40af !important;
+        font-size: 3.5rem !important;
+        font-weight: 800 !important;
+        text-align: center;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+        padding-bottom: 20px;
+    }
+
+    /* Tùy chỉnh các khối Input */
+    .stTextArea textarea {
+        background-color: #f1f5f9 !important;
+        color: #000000 !important;
+        border: 1px solid #cbd5e1 !important;
+    }
+    
+    /* Nút bấm */
+    .stButton>button {
+        width: 100%;
+        border-radius: 12px;
+        background-color: #1e40af !important;
+        color: white !important;
+        font-size: 1.2rem !important;
+        height: 3.5rem;
+        transition: 0.3s;
+    }
+    .stButton>button:hover {
+        background-color: #1d4ed8 !important;
+        transform: translateY(-2px);
+    }
     </style>
     """, unsafe_allow_html=True)
+
+# --- GIỮ NGUYÊN PHẦN KHỞI TẠO AI VÀ LOGIC BÊN DƯỚI ---
 
 # --- KHỞI TẠO AI ---
 # Sử dụng API Key từ Secrets của Streamlit
