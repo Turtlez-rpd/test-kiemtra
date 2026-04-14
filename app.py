@@ -169,64 +169,120 @@ def render_steps(placeholder, steps: list, current: int):
 
 
 # =============================================================================
-# HELPER: CRAWL NỘI DUNG TỪ URL
+# HELPER: PHÁT HIỆN MẠNG XÃ HỘI
+# =============================================================================
+
+# Danh sách domain mạng xã hội chặn crawl trực tiếp
+SOCIAL_DOMAINS = {
+    "facebook.com", "fb.com", "fb.watch",
+    "instagram.com",
+    "twitter.com", "x.com", "t.co",
+    "tiktok.com", "vt.tiktok.com",
+    "youtube.com", "youtu.be",
+    "zalo.me",
+    "threads.net",
+    "linkedin.com",
+    "reddit.com",
+}
+
+def is_social_media(url: str) -> tuple[bool, str]:
+    """
+    Kiểm tra URL có phải mạng xã hội không.
+    Trả về (True, tên_mạng) hoặc (False, "").
+    """
+    try:
+        host = urlparse(url).netloc.lower().replace("www.", "")
+        for domain in SOCIAL_DOMAINS:
+            if host == domain or host.endswith("." + domain):
+                # Tên hiển thị đẹp
+                name_map = {
+                    "facebook.com": "Facebook", "fb.com": "Facebook", "fb.watch": "Facebook",
+                    "instagram.com": "Instagram",
+                    "twitter.com": "Twitter/X", "x.com": "Twitter/X", "t.co": "Twitter/X",
+                    "tiktok.com": "TikTok", "vt.tiktok.com": "TikTok",
+                    "youtube.com": "YouTube", "youtu.be": "YouTube",
+                    "zalo.me": "Zalo",
+                    "threads.net": "Threads",
+                    "linkedin.com": "LinkedIn",
+                    "reddit.com": "Reddit",
+                }
+                return True, name_map.get(domain, domain)
+    except Exception:
+        pass
+    return False, ""
+
+
+# =============================================================================
+# HELPER: CRAWL NỘI DUNG TỪ URL (Báo / Web thông thường)
 # =============================================================================
 
 def fetch_url_content(url: str) -> dict:
     """
-    Tải và trích xuất nội dung văn bản từ một URL.
+    Xử lý URL theo 2 hướng:
 
-    Trả về dict gồm:
-        'success' (bool)  — có crawl được không
-        'title'   (str)   — tiêu đề trang
-        'content' (str)   — nội dung văn bản chính
-        'error'   (str)   — thông báo lỗi nếu thất bại
+    - Nếu là mạng xã hội (Facebook, TikTok, ...):
+        Không crawl (bị chặn), trả về mode='social' để
+        code bên ngoài chuyển URL thẳng cho Gemini tự tìm.
+
+    - Nếu là báo / web thông thường:
+        Crawl HTML, bóc nội dung, trả về mode='crawled'.
+
+    Trả về dict:
+        'mode'    : 'social' | 'crawled' | 'error'
+        'platform': tên mạng xã hội (nếu mode='social')
+        'title'   : tiêu đề trang   (nếu mode='crawled')
+        'content' : nội dung text   (nếu mode='crawled')
+        'error'   : mô tả lỗi       (nếu mode='error')
     """
-    # Kiểm tra URL hợp lệ cơ bản
+    # --- Kiểm tra URL hợp lệ ---
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
-        return {"success": False, "error": "URL không hợp lệ. Phải bắt đầu bằng http:// hoặc https://"}
+        return {"mode": "error", "error": "URL không hợp lệ. Phải bắt đầu bằng http:// hoặc https://"}
 
+    # --- Nếu là mạng xã hội → trả về ngay, không crawl ---
+    social, platform = is_social_media(url)
+    if social:
+        return {"mode": "social", "platform": platform}
+
+    # --- Crawl trang web thông thường ---
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/124.0 Safari/537.36"
-        )
+        ),
+        "Accept-Language": "vi-VN,vi;q=0.9,en;q=0.8",
     }
 
     try:
         resp = requests.get(url, headers=headers, timeout=15)
         resp.raise_for_status()
     except requests.exceptions.Timeout:
-        return {"success": False, "error": "Hết thời gian chờ (timeout 15s). Trang web phản hồi quá chậm."}
+        return {"mode": "error", "error": "Hết thời gian chờ (timeout 15s). Trang phản hồi quá chậm."}
     except requests.exceptions.ConnectionError:
-        return {"success": False, "error": "Không thể kết nối tới URL. Kiểm tra lại đường link."}
+        return {"mode": "error", "error": "Không thể kết nối. Kiểm tra lại đường link."}
     except requests.exceptions.HTTPError as e:
-        return {"success": False, "error": f"Lỗi HTTP {resp.status_code}: {e}"}
+        return {"mode": "error", "error": f"Lỗi HTTP {resp.status_code}: {e}"}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {"mode": "error", "error": str(e)}
 
     # Parse HTML
     soup = BeautifulSoup(resp.text, "html.parser")
-
-    # Lấy tiêu đề trang
     title = soup.title.string.strip() if soup.title else "Không có tiêu đề"
 
-    # Xoá các thẻ không liên quan đến nội dung
+    # Xoá thẻ không liên quan
     for tag in soup(["script", "style", "nav", "footer", "header",
                      "aside", "form", "iframe", "noscript"]):
         tag.decompose()
 
-    # Ưu tiên lấy thẻ <article> hoặc <main> (thường chứa nội dung bài báo)
+    # Ưu tiên <article> / <main> (chứa nội dung bài báo)
     article = soup.find("article") or soup.find("main") or soup.find("body")
     raw_text = article.get_text(separator="\n") if article else soup.get_text(separator="\n")
 
-    # Làm sạch: xoá dòng trống thừa, giới hạn 6000 ký tự để tránh vượt token
     lines   = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
     content = "\n".join(lines)[:6000]
 
-    return {"success": True, "title": title, "content": content, "error": ""}
+    return {"mode": "crawled", "title": title, "content": content}
 
 
 # Dùng genai.Client() thay vì genai.configure() của SDK cũ
@@ -384,23 +440,38 @@ if verify_button:
         st.stop()
 
     # -------------------------------------------------------------------------
-    # XỬ LÝ URL: Crawl nội dung trước khi gọi Gemini
+    # XỬ LÝ URL: Phân loại và xử lý thông minh
     # -------------------------------------------------------------------------
     if input_url.strip():
-        with st.spinner("🔗 Đang tải nội dung từ URL..."):
+        with st.spinner("🔗 Đang xử lý URL..."):
             result = fetch_url_content(input_url.strip())
 
-        if not result["success"]:
-            st.error(f"❌ Không thể tải URL: {result['error']}")
+        if result["mode"] == "error":
+            st.error(f"❌ Không thể xử lý URL: {result['error']}")
             st.stop()
 
-        # Ghép tiêu đề + nội dung crawl thành một khối văn bản có cấu trúc
-        url_content = (
-            f"=== NỘI DUNG TỪ URL: {input_url.strip()} ===\n"
-            f"Tiêu đề trang: {result['title']}\n\n"
-            f"{result['content']}"
-        )
-        st.info(f"✅ Đã tải xong: **{result['title']}** ({len(result['content'])} ký tự)")
+        elif result["mode"] == "social":
+            # Mạng xã hội: không crawl được, chuyển URL thẳng cho Gemini
+            # Gemini sẽ dùng Google Search để tự tìm nội dung bài đăng đó
+            platform = result["platform"]
+            url_content = (
+                f"=== LINK MẠNG XÃ HỘI CẦN KIỂM CHỨNG ===\n"
+                f"Nền tảng: {platform}\n"
+                f"URL: {input_url.strip()}\n\n"
+                f"Lưu ý: Đây là link {platform}. Hãy dùng Google Search để tìm kiếm "
+                f"nội dung liên quan đến bài đăng này, xác minh thông tin được chia sẻ "
+                f"trong link trên và đối chiếu với các nguồn báo chí chính thống."
+            )
+            st.info(f"📱 Đã nhận link **{platform}** — Gemini sẽ dùng Google Search để tra cứu nội dung.")
+
+        elif result["mode"] == "crawled":
+            # Trang báo / web thông thường: dùng nội dung crawl được
+            url_content = (
+                f"=== NỘI DUNG TỪ URL: {input_url.strip()} ===\n"
+                f"Tiêu đề trang: {result['title']}\n\n"
+                f"{result['content']}"
+            )
+            st.info(f"✅ Đã tải xong: **{result['title']}** ({len(result['content'])} ký tự)")
 
     # -------------------------------------------------------------------------
     # Xây dựng danh sách parts gửi cho Gemini
