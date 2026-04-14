@@ -99,13 +99,20 @@ if verify_button and (text_input or image_file):
             image_analysis_response = temp_image_model.generate_content([image_prompt, img])
             
             # Lấy text trong ảnh ra (bóc tách đơn giản cho demo)
-            extracted_text = ""
-            if "Trích xuất bất kỳ văn bản nào" in image_analysis_response.text:
-                 extracted_text = image_analysis_response.text.split("Trích xuất bất kỳ văn bản nào có trong hình ảnh này.")[1].strip()
-
-            dossier += f"--- Kết quả điều tra hình ảnh ---\n{image_analysis_response.text}\n"
-            if extracted_text:
-                dossier += f"Văn bản bóc được từ ảnh: '{extracted_text}'\n"
+          if verify_button and (text_input or image_file):
+    with st.spinner("AI đang 'lùng sục' khắp Internet và suy luận..."):
+        
+        # --- PHASE 1: Thu thập & Phân tích (Dùng Gemini 3.1 Pro) ---
+        dossier = ""
+        extracted_text = "" # <--- BẠN HÃY THÊM DÒNG NÀY VÀO ĐÂY!
+        
+        # 1. Xử lý ảnh (Phân tích AI-gen, bóc text)
+        if image_file and image_file.type.startswith('image/'):
+            st.write("🔍 Đang phân tích hình ảnh...")
+            img = Image.open(image_file)
+            
+            # ... (Phần code bên dưới giữ nguyên không đổi) ...
+            # LƯU Ý: Nếu trong phần code cũ đang có dòng extracted_text = "" ở trong block IF này, bạn có thể xóa nó đi cho đỡ lặp.
         
         # 2. Xử lý văn bản (Kiểm chứng sự kiện)
         if text_input or (image_file and image_file.type.startswith('image/') and extracted_text):
