@@ -9,6 +9,11 @@ import streamlit as st
 import base64
 import io
 
+# Thư viện crawl nội dung từ URL
+import requests
+from bs4 import BeautifulSoup
+from urllib.parse import urlparse
+
 # ✅ Dùng SDK MỚI: "google-genai" thay vì "google-generativeai"
 # Cài đặt: pip install google-genai
 from google import genai
@@ -162,8 +167,68 @@ def render_steps(placeholder, steps: list, current: int):
     placeholder.markdown(html, unsafe_allow_html=True)
 
 
+
 # =============================================================================
-# BƯỚC 2: KHỞI TẠO CLIENT (SDK MỚI)
+# HELPER: CRAWL NỘI DUNG TỪ URL
+# =============================================================================
+
+def fetch_url_content(url: str) -> dict:
+    """
+    Tải và trích xuất nội dung văn bản từ một URL.
+
+    Trả về dict gồm:
+        'success' (bool)  — có crawl được không
+        'title'   (str)   — tiêu đề trang
+        'content' (str)   — nội dung văn bản chính
+        'error'   (str)   — thông báo lỗi nếu thất bại
+    """
+    # Kiểm tra URL hợp lệ cơ bản
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return {"success": False, "error": "URL không hợp lệ. Phải bắt đầu bằng http:// hoặc https://"}
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0 Safari/537.36"
+        )
+    }
+
+    try:
+        resp = requests.get(url, headers=headers, timeout=15)
+        resp.raise_for_status()
+    except requests.exceptions.Timeout:
+        return {"success": False, "error": "Hết thời gian chờ (timeout 15s). Trang web phản hồi quá chậm."}
+    except requests.exceptions.ConnectionError:
+        return {"success": False, "error": "Không thể kết nối tới URL. Kiểm tra lại đường link."}
+    except requests.exceptions.HTTPError as e:
+        return {"success": False, "error": f"Lỗi HTTP {resp.status_code}: {e}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+    # Parse HTML
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    # Lấy tiêu đề trang
+    title = soup.title.string.strip() if soup.title else "Không có tiêu đề"
+
+    # Xoá các thẻ không liên quan đến nội dung
+    for tag in soup(["script", "style", "nav", "footer", "header",
+                     "aside", "form", "iframe", "noscript"]):
+        tag.decompose()
+
+    # Ưu tiên lấy thẻ <article> hoặc <main> (thường chứa nội dung bài báo)
+    article = soup.find("article") or soup.find("main") or soup.find("body")
+    raw_text = article.get_text(separator="\n") if article else soup.get_text(separator="\n")
+
+    # Làm sạch: xoá dòng trống thừa, giới hạn 6000 ký tự để tránh vượt token
+    lines   = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
+    content = "\n".join(lines)[:6000]
+
+    return {"success": True, "title": title, "content": content, "error": ""}
+
+
 # Dùng genai.Client() thay vì genai.configure() của SDK cũ
 # =============================================================================
 
@@ -262,6 +327,13 @@ with st.sidebar:
         height=180,
     )
 
+    st.markdown("### 🔗 Link bài báo / trang web *(tuỳ chọn)*")
+    input_url = st.text_input(
+        label="Dán URL cần kiểm chứng vào đây:",
+        placeholder="https://example.com/bai-viet-nao-do",
+        help="Hỗ trợ mọi trang báo, mạng xã hội có nội dung công khai",
+    )
+
     st.markdown("### 🖼️ Hình ảnh đính kèm *(tuỳ chọn)*")
     uploaded_file = st.file_uploader(
         label="Tải ảnh chụp màn hình / hình ảnh nghi vấn:",
@@ -303,12 +375,32 @@ st.markdown('<hr class="divider">', unsafe_allow_html=True)
 if verify_button:
 
     # Khai báo trước để tránh lỗi NameError
-    image_part = None
+    image_part   = None
+    url_content  = ""   # Nội dung crawl được từ URL
 
-    # Kiểm tra phải có ít nhất 1 đầu vào
-    if not user_text.strip() and uploaded_file is None:
-        st.warning("⚠️ Vui lòng nhập văn bản hoặc tải ảnh lên trước khi kiểm chứng.")
+    # Kiểm tra phải có ít nhất 1 trong 3 loại đầu vào
+    if not user_text.strip() and not input_url.strip() and uploaded_file is None:
+        st.warning("⚠️ Vui lòng nhập văn bản, dán link hoặc tải ảnh lên trước khi kiểm chứng.")
         st.stop()
+
+    # -------------------------------------------------------------------------
+    # XỬ LÝ URL: Crawl nội dung trước khi gọi Gemini
+    # -------------------------------------------------------------------------
+    if input_url.strip():
+        with st.spinner("🔗 Đang tải nội dung từ URL..."):
+            result = fetch_url_content(input_url.strip())
+
+        if not result["success"]:
+            st.error(f"❌ Không thể tải URL: {result['error']}")
+            st.stop()
+
+        # Ghép tiêu đề + nội dung crawl thành một khối văn bản có cấu trúc
+        url_content = (
+            f"=== NỘI DUNG TỪ URL: {input_url.strip()} ===\n"
+            f"Tiêu đề trang: {result['title']}\n\n"
+            f"{result['content']}"
+        )
+        st.info(f"✅ Đã tải xong: **{result['title']}** ({len(result['content'])} ký tự)")
 
     # -------------------------------------------------------------------------
     # Xây dựng danh sách parts gửi cho Gemini
@@ -325,7 +417,11 @@ if verify_button:
             types.Part(text=f"**Văn bản tin đồn cần kiểm chứng:**\n\n{user_text.strip()}")
         )
 
-    # Part 3: Hình ảnh (nếu có) — encode sang bytes rồi bọc vào types.Part
+    # Part 3: Nội dung crawl từ URL (nếu có)
+    if url_content:
+        parts.append(types.Part(text=f"**Nội dung bài báo / trang web cần kiểm chứng:**\n\n{url_content}"))
+
+    # Part 4: Hình ảnh (nếu có)
     if uploaded_file is not None:
         # Đọc bytes từ file upload
         image_bytes = uploaded_file.read()
@@ -346,10 +442,11 @@ if verify_button:
         parts.append(image_part)
 
     # -------------------------------------------------------------------------
-    # Định nghĩa các bước tiến trình hiển thị cho người dùng
+    # Định nghĩa các bước tiến trình — thích ứng theo đầu vào người dùng
     # -------------------------------------------------------------------------
     STEPS = [
         "🗂️  Chuẩn bị & đóng gói dữ liệu đầu vào",
+        "🔗  Crawl & trích xuất nội dung từ URL",
         "🖼️  Phân tích hình ảnh (nhận diện Deepfake / OCR)",
         "🌐  Tra cứu Google — đối chiếu nguồn chính thống",
         "🧠  AI tổng hợp bằng chứng & soạn báo cáo",
@@ -359,18 +456,19 @@ if verify_button:
     # Tạo placeholder để cập nhật UI tại chỗ (không bị đẩy xuống)
     progress_placeholder = st.empty()
 
-    # ---- Bước 0: Chuẩn bị dữ liệu (đã xong ở trên, đánh dấu đang chạy) ----
+    # ---- Bước 0: Chuẩn bị xong -----------------------------------------------
     render_steps(progress_placeholder, STEPS, current=0)
 
-    # ---- Bước 1: Phân tích ảnh — chuyển sang nếu có ảnh, bỏ qua nếu không --
-    if uploaded_file is not None:
+    # ---- Bước 1: URL — đã crawl xong ở trên, chỉ cần cập nhật UI ------------
+    if input_url.strip():
         render_steps(progress_placeholder, STEPS, current=1)
-    else:
-        # Không có ảnh → coi bước ảnh đã xong ngay, nhảy thẳng sang search
+
+    # ---- Bước 2: Phân tích ảnh -----------------------------------------------
+    if uploaded_file is not None:
         render_steps(progress_placeholder, STEPS, current=2)
 
-    # ---- Bước 2: Tra cứu Google (đây là lúc gọi API thật — lâu nhất) -------
-    render_steps(progress_placeholder, STEPS, current=2)
+    # ---- Bước 3: Gọi Gemini API (tra cứu Google + suy luận — lâu nhất) ------
+    render_steps(progress_placeholder, STEPS, current=3)
 
     try:
         response = client.models.generate_content(
@@ -389,10 +487,10 @@ if verify_button:
         st.error(f"❌ Đã xảy ra lỗi khi gọi Gemini API:\n\n`{e}`")
         st.stop()
 
-    # ---- Bước 3: Tổng hợp (API đã trả về, đang render) ---------------------
-    render_steps(progress_placeholder, STEPS, current=3)
+    # ---- Bước 4: Tổng hợp (API đã trả về, đang render) ----------------------
+    render_steps(progress_placeholder, STEPS, current=4)
 
-    # ---- Bước 4: Hoàn tất — điền 100% rồi xoá thanh tiến trình -----------
+    # ---- Bước 5: Hoàn tất — điền 100% rồi xoá thanh tiến trình -------------
     render_steps(progress_placeholder, STEPS, current=len(STEPS))
     progress_placeholder.empty()   # Dọn dẹp UI, nhường chỗ cho kết quả
 
@@ -419,7 +517,7 @@ else:
             <strong style="color: #e94560;">BẮT ĐẦU KIỂM CHỨNG</strong> để phân tích.
         </h3>
         <p style="color: #444; font-size: 0.9rem; margin-top: 1rem;">
-            Hỗ trợ: Văn bản tin đồn · Hình ảnh chụp màn hình · Bài viết mạng xã hội
+            Hỗ trợ: Văn bản tin đồn · Link bài báo / trang web · Hình ảnh chụp màn hình
         </p>
     </div>
     """, unsafe_allow_html=True)
