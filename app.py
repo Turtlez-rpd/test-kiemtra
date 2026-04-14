@@ -95,8 +95,8 @@ except KeyError:
 # =============================================================================
 
 model = genai.GenerativeModel(
-    model_name="gemini-2.5-pro",       # Model mạnh nhất, hỗ trợ multimodal + search
-    tools="google_search_retrieval",   # Kích hoạt tính năng tự tìm kiếm Google
+    model_name="gemini-2.5-pro",   # Model mạnh nhất, hỗ trợ multimodal + search
+    tools="google_search",         # ✅ Tên tool mới (google_search_retrieval đã deprecated)
 )
 
 
