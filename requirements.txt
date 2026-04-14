@@ -1,5 +1,6 @@
 google-genai
 streamlit
-
 anthropic
 Pillow
+requests
+beautifulsoup4 
