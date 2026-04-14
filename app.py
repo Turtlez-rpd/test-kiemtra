@@ -54,8 +54,112 @@ st.markdown("""
     [data-testid="stSidebar"] label,
     [data-testid="stSidebar"] p,
     [data-testid="stSidebar"] span { color: #cccccc !important; }
+
+    /* --- Thanh tiến trình từng bước --- */
+    .progress-wrapper {
+        background: #12122b;
+        border: 1px solid #2a2a5a;
+        border-radius: 14px;
+        padding: 1.4rem 1.8rem;
+        margin: 1rem 0 1.5rem 0;
+    }
+    .progress-title {
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 1.5px;
+        color: #555;
+        text-transform: uppercase;
+        margin-bottom: 1.1rem;
+    }
+    .progress-rail {
+        background: #1e1e3a;
+        border-radius: 99px;
+        height: 6px;
+        margin-bottom: 1.4rem;
+        overflow: hidden;
+    }
+    .progress-fill {
+        height: 6px;
+        border-radius: 99px;
+        background: linear-gradient(90deg, #e94560, #f5a623);
+        transition: width 0.5s ease;
+    }
+    .steps-list { list-style: none; padding: 0; margin: 0; }
+    .step-item {
+        display: flex;
+        align-items: center;
+        gap: 0.85rem;
+        padding: 0.45rem 0;
+        font-size: 0.92rem;
+        color: #444;
+    }
+    .step-item.done   { color: #00b894; }
+    .step-item.active { color: #f5a623; font-weight: 600; }
+    .step-item.pending { color: #333; }
+    .step-icon {
+        width: 26px; height: 26px;
+        border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 0.75rem;
+        flex-shrink: 0;
+        font-weight: 700;
+    }
+    .icon-done    { background: #00b894; color: #fff; }
+    .icon-active  {
+        background: #f5a623; color: #fff;
+        animation: pulse 1.2s ease-in-out infinite;
+    }
+    .icon-pending { background: #1e1e3a; color: #333; border: 1px solid #2a2a5a; }
+    @keyframes pulse {
+        0%, 100% { box-shadow: 0 0 6px #f5a62355; }
+        50%       { box-shadow: 0 0 16px #f5a623cc; }
+    }
 </style>
 """, unsafe_allow_html=True)
+
+
+# =============================================================================
+# HELPER: RENDER THANH TIẾN TRÌNH TỪNG BƯỚC
+# =============================================================================
+
+def render_steps(placeholder, steps: list, current: int):
+    """
+    Vẽ thanh tiến trình + danh sách bước có icon trạng thái.
+
+    Args:
+        placeholder : st.empty() — vùng HTML được ghi đè mỗi lần gọi
+        steps       : list[str]  — tên các bước theo thứ tự
+        current     : int        — index bước ĐANG chạy (0-based)
+                                   len(steps) = tất cả đã hoàn tất
+    """
+    total = len(steps)
+    pct   = int(current / total * 100)
+
+    rows = ""
+    for i, label in enumerate(steps):
+        if i < current:
+            state, icon_cls, icon_html = "done",    "icon-done",    "✓"
+        elif i == current:
+            state, icon_cls, icon_html = "active",  "icon-active",  "●"
+        else:
+            state, icon_cls, icon_html = "pending", "icon-pending", str(i + 1)
+
+        rows += (
+            f'<li class="step-item {state}">'
+            f'<span class="step-icon {icon_cls}">{icon_html}</span>'
+            f'{label}</li>'
+        )
+
+    html = (
+        f'<div class="progress-wrapper">'
+        f'<div class="progress-title">⚙️ Tiến trình phân tích — {pct}%</div>'
+        f'<div class="progress-rail">'
+        f'<div class="progress-fill" style="width:{pct}%"></div>'
+        f'</div>'
+        f'<ul class="steps-list">{rows}</ul>'
+        f'</div>'
+    )
+    placeholder.markdown(html, unsafe_allow_html=True)
 
 
 # =============================================================================
@@ -242,24 +346,55 @@ if verify_button:
         parts.append(image_part)
 
     # -------------------------------------------------------------------------
-    # Gọi Gemini API với SDK mới
-    # client.models.generate_content() thay vì model.generate_content()
+    # Định nghĩa các bước tiến trình hiển thị cho người dùng
     # -------------------------------------------------------------------------
-    with st.spinner("🔄 Đang phân tích và tra cứu thông tin trên mạng... Vui lòng chờ."):
-        try:
-            response = client.models.generate_content(
-                model=MODEL_NAME,
-                contents=parts,
-                config=types.GenerateContentConfig(
-                    tools=[google_search_tool],   # ✅ Truyền tool đúng cách
-                    temperature=0.1,              # Thấp để kết quả ổn định, ít sáng tạo
-                ),
-            )
-            result_text = response.text
+    STEPS = [
+        "🗂️  Chuẩn bị & đóng gói dữ liệu đầu vào",
+        "🖼️  Phân tích hình ảnh (nhận diện Deepfake / OCR)",
+        "🌐  Tra cứu Google — đối chiếu nguồn chính thống",
+        "🧠  AI tổng hợp bằng chứng & soạn báo cáo",
+        "✅  Hoàn tất — xuất kết quả",
+    ]
 
-        except Exception as e:
-            st.error(f"❌ Đã xảy ra lỗi khi gọi Gemini API:\n\n`{e}`")
-            st.stop()
+    # Tạo placeholder để cập nhật UI tại chỗ (không bị đẩy xuống)
+    progress_placeholder = st.empty()
+
+    # ---- Bước 0: Chuẩn bị dữ liệu (đã xong ở trên, đánh dấu đang chạy) ----
+    render_steps(progress_placeholder, STEPS, current=0)
+
+    # ---- Bước 1: Phân tích ảnh — chuyển sang nếu có ảnh, bỏ qua nếu không --
+    if uploaded_file is not None:
+        render_steps(progress_placeholder, STEPS, current=1)
+    else:
+        # Không có ảnh → coi bước ảnh đã xong ngay, nhảy thẳng sang search
+        render_steps(progress_placeholder, STEPS, current=2)
+
+    # ---- Bước 2: Tra cứu Google (đây là lúc gọi API thật — lâu nhất) -------
+    render_steps(progress_placeholder, STEPS, current=2)
+
+    try:
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=parts,
+            config=types.GenerateContentConfig(
+                tools=[google_search_tool],   # ✅ Truyền tool đúng cách
+                temperature=0.1,              # Thấp để kết quả ổn định
+            ),
+        )
+        result_text = response.text
+
+    except Exception as e:
+        # Xoá progress UI khi lỗi để không gây nhầm lẫn
+        progress_placeholder.empty()
+        st.error(f"❌ Đã xảy ra lỗi khi gọi Gemini API:\n\n`{e}`")
+        st.stop()
+
+    # ---- Bước 3: Tổng hợp (API đã trả về, đang render) ---------------------
+    render_steps(progress_placeholder, STEPS, current=3)
+
+    # ---- Bước 4: Hoàn tất — điền 100% rồi xoá thanh tiến trình -----------
+    render_steps(progress_placeholder, STEPS, current=len(STEPS))
+    progress_placeholder.empty()   # Dọn dẹp UI, nhường chỗ cho kết quả
 
     # --- Hiển thị kết quả ---
     st.success("✅ Phân tích hoàn tất!")
