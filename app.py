@@ -1,164 +1,137 @@
 import streamlit as st
-from google import genai
-from google.genai import types
-import PIL.Image
-import io
+import google.generativeai as genai
+import anthropic # Thư viện Claude (Giả định bạn đã có API Key)
+import os
+from PIL import Image
 
-# --- CẤU HÌNH GIAO DIỆN ---
-st.set_page_config(
-    page_title="TruthGuard AI - Fact Checker",
-    page_icon="🛡️",
-    layout="wide"
+# 1. Cấu hình các API Key bảo mật (Trong file .env)
+# genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+# CLAUDE_API_KEY = os.environ["CLAUDE_API_KEY"]
+# judge_client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
+
+# --- GIẢ GIÁ ĐỂ CHẠY THỬ (DÁN KEY THẬT CỦA BẠN VÀO ĐÂY) ---
+genai.configure(api_key="PASTE_YOUR_GEMINI_API_KEY_HERE")
+# CLAUDE_API_KEY = "PASTE_YOUR_CLAUDE_API_KEY_HERE"
+# judge_client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
+# --- XÓA CỤC GIẢ GIÁ KHI ĐI THI ---
+
+# 2. Định nghĩa các Tác nhân (Agents)
+
+# Tác nhân 1: The Investigator (Gemini 3.1 Pro)
+# Dùng cho các vụ án văn bản và suy luận sâu sau khi có search
+investigator_model = genai.GenerativeModel(
+    model_name='gemini-3.1-pro',
+    tools='google_search_retrieval' # Bật tính năng search
 )
 
-# --- CSS FIX LỖI HIỂN THỊ (ÉP MÀU CHỮ ĐẬM) ---
-st.markdown("""
-    <style>
-    /* Nền chính của App */
-    .stApp {
-        background-color: #ffffff;
-    }
+# Tác nhân 2: The Judge (Claude - Năng lực phán xét)
+def ask_judge_claude(investigation_dossier):
+    # --- MOCK CLAUDE (Dùng khi chưa có key, dán code thật vào sau) ---
+    print("\n--- Gọi API Claude ---")
+    mock_claude_response = f"""
+        (Claude giả lập) Phán quyết: THẬT.
+        Giải thích: Dựa vào 'Hồ sơ chứng cứ' từ Gemini 3.1 Pro, tôi thấy các trang báo chính thống tại Việt Nam như vtv.vn, tuoitre.vn đều đồng loạt đưa tin về sự kiện này. Mốc thời gian và các chi tiết cốt lõi đều trùng khớp, không có dấu hiệu ngụy biện.
+        """
+    return mock_claude_response
+    # --- END MOCK CLAUDE ---
     
-    /* Ép màu tất cả các loại chữ tiêu đề và văn bản */
-    h1, h2, h3, p, span, label {
-        color: #1e293b !important; /* Màu xanh đen đậm, cực kỳ dễ đọc */
-    }
+    # --- Code thật để đi thi (Khi có key, hãy bỏ comment) ---
+    # message = judge_client.messages.create(
+    #     model="claude-3-opus-20240229",
+    #        max_tokens=1000,
+    #        temperature=0,
+    #        messages=[
+    #            {
+    #                "role": "user",
+    #                "content": [
+    #                    {
+    #                        "type": "text",
+    #                        "text": f"Ngươi là một Thẩm phán AI tối cao. Hãy đọc kỹ 'Hồ sơ chứng cứ' sau đây và đưa ra phán quyết cuối cùng (THẬT, GIẢ, hoặc XUYÊN TẠC). Giải thích ngắn gọn nhưng đanh thép. {investigation_dossier}"
+    #                    }
+    #                ]
+    #            }
+    #        ]
+    #    )
+    # return message.content[0].text
+    # --- END CODE THẬT ---
 
-    /* Tùy chỉnh tiêu đề chính */
-    .main-title {
-        color: #1e40af !important;
-        font-size: 3.5rem !important;
-        font-weight: 800 !important;
-        text-align: center;
-        text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
-        padding-bottom: 20px;
-    }
+# 3. Giao diện Streamlit (Sửa lại layout cho đẹp)
 
-    /* Tùy chỉnh các khối Input */
-    .stTextArea textarea {
-        background-color: #f1f5f9 !important;
-        color: #000000 !important;
-        border: 1px solid #cbd5e1 !important;
-    }
-    
-    /* Nút bấm */
-    .stButton>button {
-        width: 100%;
-        border-radius: 12px;
-        background-color: #1e40af !important;
-        color: white !important;
-        font-size: 1.2rem !important;
-        height: 3.5rem;
-        transition: 0.3s;
-    }
-    .stButton>button:hover {
-        background-color: #1d4ed8 !important;
-        transform: translateY(-2px);
-    }
-    </style>
-    """, unsafe_allow_html=True)
+st.set_page_config(layout="wide", page_title="TruthGuard AI - Trạm kiểm chứng")
+st.title("🛡️ TruthGuard AI")
+st.caption("Công nghệ Multi-Agent xác minh tin giả qua Văn bản và Hình ảnh.")
 
-# --- GIỮ NGUYÊN PHẦN KHỞI TẠO AI VÀ LOGIC BÊN DƯỚI ---
-
-# --- KHỞI TẠO AI ---
-# Sử dụng API Key từ Secrets của Streamlit
-try:
-    API_KEY = st.secrets["GEMINI_API_KEY"]
-    client = genai.Client(api_key=API_KEY)
-except Exception:
-    st.error("⚠️ Không tìm thấy API Key. Hãy cấu hình trong Secrets hoặc file .env")
-
-# --- SIDEBAR ---
+# Sidebar - Điều khiển
 with st.sidebar:
-    st.title("🛠️ Điều khiển")
-    st.info("Hệ thống kiểm chứng tin tức đa phương tiện của đội 3TLcoder.")
-    st.divider()
-    st.markdown("### 📊 Quota Status")
-    st.caption("Model: Gemini 2.5 Flash (Active)")
-    st.progress(0.4) # Demo thanh tiến trình
+    st.header("⚙️ Bảng Điều Khiển")
+    text_input = st.text_area("1. Dán văn bản/link tin đồn vào đây:", height=150, placeholder="Ví dụ: Ăn chuối bất tử")
+    image_file = st.file_uploader("2. Tải ảnh/Video lên (nếu có):", type=['png', 'jpg', 'jpeg', 'mp4'])
+    
+    verify_button = st.button("🔥 BẮT ĐẦU KIỂM CHỨNG", use_container_width=True)
 
-# --- GIAO DIỆN CHÍNH ---
-st.markdown("<h1 class='main-title'>🛡️ TruthGuard AI</h1>", unsafe_allow_html=True)
-st.write("<p style='text-align: center;'>Công nghệ AI xác minh tin giả qua Văn bản, Hình ảnh và Video</p>", unsafe_allow_html=True)
+# Main Content - Hiển thị kết quả
+st.subheader("📋 Báo Cáo Kiểm Chứng")
 
-# Chia bố cục Input
-col_text, col_media = st.columns([1.2, 1])
-
-with col_text:
-    st.markdown("### 📝 Nội dung xác minh")
-    tin_tuc_nghi_ngo = st.text_area(
-        "Dán văn bản bài báo, đoạn tin đồn hoặc Link tại đây:", 
-        height=200, 
-        placeholder="Ví dụ: Link báo giả mạo, tin nhắn lừa đảo chuyển tiền..."
-    )
-
-with col_media:
-    st.markdown("### 📸 Bằng chứng Media")
-    uploaded_file = st.file_uploader("Tải lên Ảnh chụp màn hình hoặc Video:", type=["jpg", "jpeg", "png", "mp4", "mov"])
-    if uploaded_file:
-        if uploaded_file.type.startswith('image'):
-            st.image(uploaded_file, caption="Ảnh bằng chứng", use_container_width=True)
-        else:
-            st.video(uploaded_file)
-
-# --- XỬ LÝ DỮ LIỆU ---
-if st.button("🚀 BẮT ĐẦU KIỂM CHỨNG"):
-    if not tin_tuc_nghi_ngo and not uploaded_file:
-        st.warning("Vui lòng nhập ít nhất một loại dữ liệu (Văn bản hoặc File)!")
-    else:
-        with st.spinner("🔍 Hệ thống đang đối soát dữ liệu thực tế..."):
+if verify_button and (text_input or image_file):
+    with st.spinner("AI đang 'lùng sục' khắp Internet và suy luận..."):
+        
+        # --- PHASE 1: Thu thập & Phân tích (Dùng Gemini 3.1 Pro) ---
+        dossier = ""
+        
+        # 1. Xử lý ảnh (Phân tích AI-gen, bóc text)
+        if image_file and image_file.type.startswith('image/'):
+            st.write("🔍 Đang phân tích hình ảnh...")
+            img = Image.open(image_file)
             
-            # Chuẩn bị dữ liệu cho AI
-            contents = []
-            
-            # Prompt tối ưu để AI trả về % và lời khuyên
-            prompt_instruction = """
-            Bạn là chuyên gia phân tích tin giả của TruthGuard. Hãy sử dụng Google Search để kiểm tra.
-            Hãy phân tích kỹ các yếu tố: nguồn tin, tính xác thực của hình ảnh/video, và sự kiện liên quan.
-            
-            Yêu cầu cấu trúc phản hồi:
-            1. [PERCENTAGE]: Đưa ra con số % tin cậy cụ thể (Ví dụ: 20% Thật - 80% Giả).
-            2. [ANALYSIS]: Phân tích các bằng chứng tìm được từ các nguồn báo chí chính thống.
-            3. [WARNINGS]: Chỉ ra các dấu hiệu lừa đảo hoặc cắt ghép (nếu có).
-            4. [ADVICE]: Lời khuyên cụ thể cho người dùng (Ví dụ: Không nhấn link, báo cáo bài viết).
-            
-            Trình bày bằng Markdown, sử dụng bảng hoặc bullet points cho dễ đọc.
+            # Câu prompt yêu cầu Gemini thực hiện "Deep Thinking"
+            image_prompt = """
+            Ngươi là một chuyên gia điều tra kỹ thuật số. Hãy phân tích hình ảnh này.
+            1. Tìm các dấu hiệu hình ảnh cho thấy đây có phải là ảnh do AI tạo (AI-generated) hay không (ví dụ: lỗi ngón tay, cấu trúc da, ánh sáng phi lý). Hãy giải thích chi tiết các bằng chứng tìm được.
+            2. Trích xuất bất kỳ văn bản nào có trong hình ảnh này.
             """
-            contents.append(prompt_instruction)
             
-            if tin_tuc_nghi_ngo:
-                contents.append(f"Nội dung cần kiểm tra: {tin_tuc_nghi_ngo}")
+            # Phân tích ảnh không cần search
+            # image_analysis_model = genai.GenerativeModel('gemini-1.5-pro') # Dùng con pro cho ảnh, ko cần search
+            # image_analysis_response = image_analysis_model.generate_content([image_prompt, img])
             
-            if uploaded_file:
-                if uploaded_file.type.startswith('image'):
-                    img = PIL.Image.open(uploaded_file)
-                    contents.append(img)
-                else:
-                    video_data = uploaded_file.read()
-                    contents.append(types.Part.from_bytes(data=video_data, mime_type=uploaded_file.type))
+            # --- Tạm thời dùng Gemini 1.5 Pro cho ảnh để tiết kiệm quota của con 3.1 Pro mới ---
+            temp_image_model = genai.GenerativeModel('gemini-1.5-pro')
+            image_analysis_response = temp_image_model.generate_content([image_prompt, img])
+            
+            # Lấy text trong ảnh ra (bóc tách đơn giản cho demo)
+            extracted_text = ""
+            if "Trích xuất bất kỳ văn bản nào" in image_analysis_response.text:
+                 extracted_text = image_analysis_response.text.split("Trích xuất bất kỳ văn bản nào có trong hình ảnh này.")[1].strip()
 
-            try:
-                # Đổi model sang Gemini 2.5 Flash như yêu cầu
-                response = client.models.generate_content(
-                    model='gemini-2.5-flash',
-                    contents=contents,
-                    config=types.GenerateContentConfig(
-                        tools=[{"google_search": {}}]
-                    )
-                )
+            dossier += f"--- Kết quả điều tra hình ảnh ---\n{image_analysis_response.text}\n"
+            if extracted_text:
+                dossier += f"Văn bản bóc được từ ảnh: '{extracted_text}'\n"
+        
+        # 2. Xử lý văn bản (Kiểm chứng sự kiện)
+        if text_input or (image_file and image_file.type.startswith('image/') and extracted_text):
+            st.write("🔍 Đang kiểm chứng văn bản qua Google Search...")
+            text_to_check = text_input + " " + extracted_text # Kết hợp text input và text trong ảnh
+            
+            text_prompt = f"""
+            Ngươi là một Điều tra viên cao cấp. Hãy xem xét [Hình ảnh/Video/Văn bản] này. Hãy trích xuất các tuyên bố đáng ngờ. Sau đó, tự động sử dụng Google Search để tìm kiếm các bằng chứng liên quan từ các trang web chính thống tại Việt Nam (như chính phủ, báo đài quốc gia, các nguồn quốc tế uy tín). Hãy xâu chuỗi thông tin, phân tích tính đúng sai của các tuyên bố dựa trên những gì tìm được, và lập thành một 'Hồ Sơ Chứng Cứ' khách quan, chi tiết nhất. Thông tin cần check: '{text_to_check}'
+            """
+            
+            # Gọi API Gemini 3.1 Pro có search
+            text_analysis_response = investigator_model.generate_content(text_prompt)
+            dossier += f"--- Kết quả điều tra văn bản ---\n{text_analysis_response.text}\n"
+            
+        # --- PHASE 2: Phán quyết (Chuyển sang Claude) ---
+        st.write("⚖️ 'Thẩm phán tối cao' Claude đang xem xét hồ sơ...")
+        final_verdict = ask_judge_claude(dossier)
+        
+        # --- PHASE 3: Hiển thị (Display) ---
+        st.write("✅ Đã có phán quyết!")
+        
+        st.divider()
+        st.write(final_verdict)
+        
+        with st.expander("👁️ Xem chi tiết 'Hồ sơ chứng cứ' (Dữ liệu từ Gemini 3.1 Pro)"):
+            st.text(dossier)
 
-                # --- HIỂN THỊ KẾT QUẢ ---
-                st.divider()
-                st.balloons()
-                
-                st.markdown("## 📋 Báo Cáo Kiểm Chứng")
-                
-                # Hiển thị nội dung phản hồi từ AI
-                st.markdown(response.text)
-
-            except Exception as e:
-                st.error(f"❌ Lỗi: {str(e)}")
-
-# --- FOOTER ---
-st.divider()
-st.markdown("<p style='text-align: center; color: gray;'>Dự án TruthGuard AI - National Final top 30 Hanoi</p>", unsafe_allow_html=True)
+else:
+    st.info("Hãy nhập tin đồn hoặc tải file lên ở bảng điều khiển bên trái để bắt đầu.")
